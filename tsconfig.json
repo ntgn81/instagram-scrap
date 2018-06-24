@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "watch": true,
+    "module": "commonjs",
+    "skipLibCheck": true,
+    "target": "esnext",
+    "sourceMap": true
+  },
+  "exclude": ["./node_modules/*"]
+}
