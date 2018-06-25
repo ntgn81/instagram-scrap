@@ -3,12 +3,26 @@ import puppeteer = require('puppeteer');
 export type Page = puppeteer.Page;
 export type Response = puppeteer.Response;
 
+export interface BaseUser {
+  username: string;
+}
+
+export interface User extends BaseUser {
+  full_name: string;
+  biography: string;
+  external_url: string;
+  edge_followed_by: { count: number };
+}
+
+export interface UserWithAnalytics extends User {
+  email: string;
+  followers?: count;
+}
+
 export interface Post {
   id: string;
   shortcode: string;
-  owner: {
-    id: string;
-  };
+  owner: BaseUser;
 }
 
 interface Edge<T> {
@@ -26,20 +40,29 @@ export interface HashtagData {
   };
 }
 
-export interface ShortcodeMediaData {
-  owner: {
-    id: string;
-    reel: {
-      owner: {
-        username: string;
-      };
-    };
-  };
-}
-
 export interface GraphqlResponse {
   data: {
     hashtag?: HashtagData;
-    shortcode_media?: ShortcodeMediaData;
   };
+}
+
+export interface InstagramPageData {
+  PostPage?: [
+    {
+      graphql: {
+        shortcode_media: Post;
+      };
+    }
+  ];
+  ProfilePage?: [
+    {
+      graphql: {
+        user: User;
+      };
+    }
+  ];
+}
+
+export interface InstagramSharedData {
+  entry_data: InstagramPageData;
 }
