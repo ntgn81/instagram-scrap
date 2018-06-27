@@ -5,14 +5,15 @@ import * as t from './index.d';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const escapeForCsv = str => str.replace(/"/g, '""');
 
-run().then(console.log);
+const NUMBER_OF_PAGES = 10;
 
+run().then(console.log);
 async function run() {
   const browser = await puppeteer.launch({ headless: true });
   const page = await browser.newPage();
   await page.setViewport({ width: 800, height: 2000, deviceScaleFactor: 0.1 });
 
-  const posts = await getHashtagPosts(page, 'fitnesstrainer', 100);
+  const posts = await getHashtagPosts(page, 'fitnesstrainer', NUMBER_OF_PAGES);
 
   const owners = await getUniquePostOwners(page, posts);
 
