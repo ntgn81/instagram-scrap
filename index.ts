@@ -1,15 +1,20 @@
-import { promises as fs } from 'fs';
+import * as fs from 'fs';
 import * as puppeteer from 'puppeteer';
+import { promisify } from 'util';
 import * as t from './index.d';
+const writeFileAsync = promisify(fs.writeFile);
+
+/* ========= COFIGURATIONS START ========= */
+const NUMBER_OF_PAGES = 1;
+const SHOW_CHROME = true;
+/* ========= COFIGURATIONS END ========= */
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const escapeForCsv = str => str.replace(/"/g, '""');
 
-const NUMBER_OF_PAGES = 10;
-
 run().then(console.log);
 async function run() {
-  const browser = await puppeteer.launch({ headless: true });
+  const browser = await puppeteer.launch({ headless: !SHOW_CHROME });
   const page = await browser.newPage();
   await page.setViewport({ width: 800, height: 2000, deviceScaleFactor: 0.1 });
 
@@ -21,7 +26,7 @@ async function run() {
 
   const usersWithAnalytics = await extractEmail(users);
   await exportToCsv(usersWithAnalytics);
-  await fs.writeFile(
+  await writeFileAsync(
     'users.json',
     JSON.stringify(
       usersWithAnalytics.map(({ username, email, biography, external_url, followers }) => ({
@@ -150,7 +155,7 @@ async function exportToCsv(users: t.UserWithAnalytics[]) {
     ({ username, email, external_url, followers, biography }) =>
       `"${username}","${followers}","${email}","${external_url}","${escapeForCsv(biography)}"`
   );
-  await fs.writeFile(
+  await writeFileAsync(
     'users.csv',
     ['Username,Followers,Email,ExternalUrl,Bio', ...userRows].join('\n')
   );
