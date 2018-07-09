@@ -1,43 +1,59 @@
 import * as fs from 'fs';
 import * as puppeteer from 'puppeteer';
 import { promisify } from 'util';
-import * as t from './index.d';
+import db from './db';
+import * as t from './definitions';
 const writeFileAsync = promisify(fs.writeFile);
 
 /* ========= COFIGURATIONS START ========= */
 const NUMBER_OF_PAGES = 1;
 const SHOW_CHROME = true;
+const HASHTAG = 'fitnesstrainer';
 /* ========= COFIGURATIONS END ========= */
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const escapeForCsv = str => str.replace(/"/g, '""');
 
-run().then(console.log);
+(async () => {
+  try {
+    await run();
+    console.log('Done');
+  } catch (e) {
+    console.error('Failed', e.message);
+  } finally {
+    await db.closeConnection();
+    process.exit();
+  }
+})();
+
 async function run() {
+  await db.initConnection();
+
   const browser = await puppeteer.launch({ headless: !SHOW_CHROME });
   const page = await browser.newPage();
   await page.setViewport({ width: 800, height: 2000, deviceScaleFactor: 0.1 });
 
-  const posts = await getHashtagPosts(page, 'fitnesstrainer', NUMBER_OF_PAGES);
+  const posts = await getHashtagPosts(page, HASHTAG, NUMBER_OF_PAGES);
 
   const owners = await getUniquePostOwners(page, posts);
 
   const users = await getUsers(page, owners);
 
   const usersWithAnalytics = await extractEmail(users);
+
   await exportToCsv(usersWithAnalytics);
-  await writeFileAsync(
-    'users.json',
-    JSON.stringify(
-      usersWithAnalytics.map(({ username, email, biography, external_url, followers }) => ({
-        biography,
-        email,
-        external_url,
-        followers,
-        username
-      }))
-    )
-  );
+  // await writeFileAsync(
+  //   'users.json',
+  //   JSON.stringify(
+  //     usersWithAnalytics.map(({ username, email, biography, external_url, followers }) => ({
+  //       biography,
+  //       email,
+  //       external_url,
+  //       followers,
+  //       username
+  //     }))
+  //   )
+  // );
 
   await browser.close();
 }
@@ -46,44 +62,71 @@ async function getUsers(page: t.Page, users: t.BaseUser[]): Promise<t.User[]> {
   const resolvedUsers: t.User[] = [];
 
   for (const { username } of users) {
-    const pageData = await extractPageData(page, `https://www.instagram.com/${username}/`);
-    try {
-      const user = pageData.ProfilePage[0].graphql.user;
+    const user = await getUser(page, username);
+    if (user) {
       resolvedUsers.push(user);
-    } catch (e) {
-      console.log(
-        'Failed for getUsers ',
-        `https://www.instagram.com/${username}/`,
-        JSON.stringify(pageData),
-        e.message
-      );
     }
   }
   return resolvedUsers;
+}
+
+async function getUser(page: t.Page, username: string): Promise<t.User> {
+  let user = await db.usernameToUser.get(username);
+
+  if (user) {
+    return user;
+  }
+
+  const pageData = await extractPageData(page, `https://www.instagram.com/${username}/`);
+  try {
+    user = pageData.ProfilePage[0].graphql.user;
+    db.usernameToUser.save(username, user);
+
+    return user;
+  } catch (e) {
+    console.log(
+      'Failed for getUsers ',
+      `https://www.instagram.com/${username}/`,
+      JSON.stringify(pageData),
+      e.message
+    );
+  }
 }
 
 async function getUniquePostOwners(page: t.Page, posts: t.Post[]): Promise<t.BaseUser[]> {
   const postOwnersByName: Record<string, t.BaseUser> = {};
 
   for (const { shortcode } of posts) {
-    const pageData = await extractPageData(page, `https://www.instagram.com/p/${shortcode}/`);
+    const owner = await getPostOwner(page, shortcode);
 
-    try {
-      const owner = pageData.PostPage[0].graphql.shortcode_media.owner;
+    if (owner) {
       postOwnersByName[owner.username] = owner;
-    } catch (e) {
-      console.log(
-        'Failed for getPostOwner ',
-        `https://www.instagram.com/p/${shortcode}/`,
-        JSON.stringify(pageData),
-        e.message
-      );
     }
 
     await sleep(300);
   }
 
   return Object.values(postOwnersByName);
+}
+
+async function getPostOwner(page: t.Page, shortcode: string): Promise<t.BaseUser> {
+  let baseUser = await db.postToOwner.get(shortcode);
+
+  const pageData = await extractPageData(page, `https://www.instagram.com/p/${shortcode}/`);
+
+  try {
+    baseUser = pageData.PostPage[0].graphql.shortcode_media.owner;
+    db.postToOwner.save(shortcode, baseUser);
+
+    return baseUser;
+  } catch (e) {
+    console.log(
+      'Failed for getPostOwner ',
+      `https://www.instagram.com/p/${shortcode}/`,
+      JSON.stringify(pageData),
+      e.message
+    );
+  }
 }
 
 async function getHashtagPosts(
@@ -152,11 +195,13 @@ async function extractEmail(users: t.User[]): Promise<t.UserWithAnalytics[]> {
 
 async function exportToCsv(users: t.UserWithAnalytics[]) {
   const userRows = users.map(
-    ({ username, email, external_url, followers, biography }) =>
-      `"${username}","${followers}","${email}","${external_url}","${escapeForCsv(biography)}"`
+    ({ username, full_name, email, external_url, followers, biography }) =>
+      `"${username}","${full_name}","${followers}","${email}","${external_url}","${escapeForCsv(
+        biography
+      )}"`
   );
   await writeFileAsync(
-    'users.csv',
-    ['Username,Followers,Email,ExternalUrl,Bio', ...userRows].join('\n')
+    '../users.csv',
+    ['Username,Full Name,Followers,Email,ExternalUrl,Bio', ...userRows].join('\n')
   );
 }
