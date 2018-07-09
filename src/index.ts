@@ -1,29 +1,25 @@
+import * as colors from 'colors/safe';
 import * as fs from 'fs';
 import * as inquirer from 'inquirer';
+import * as path from 'path';
+import * as ProgressBar from 'progress';
 import * as puppeteer from 'puppeteer';
 import { promisify } from 'util';
 import db from './db';
 import * as t from './definitions';
-const writeFileAsync = promisify(fs.writeFile);
 
-/* ========= COFIGURATIONS START ========= */
-const settings = {
-  numberOfPages: 1,
-  showChrome: true,
-  hashtag: 'fitnesstrainer'
-};
-/* ========= COFIGURATIONS END ========= */
+const writeFileAsync = promisify(fs.writeFile);
+const progressBarFormat = '[:bar] :current/:total';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const escapeForCsv = str => str.replace(/"/g, '""');
-
 let browser: t.Browser;
 (async () => {
   try {
     await run();
-    console.log('Done');
+    console.log('\nDone ');
   } catch (e) {
-    console.error('Failed', e.message);
+    console.error('\nFailed:', e.message);
   } finally {
     await db.closeConnection();
     if (browser) {
@@ -38,11 +34,11 @@ async function run() {
 
   await db.initConnection(config.dbUser, `${config.dbUser}1`);
 
-  browser = await puppeteer.launch({ headless: !settings.showChrome });
+  browser = await puppeteer.launch({ headless: !config.showChrome });
   const page = await browser.newPage();
   await page.setViewport({ width: 800, height: 2000, deviceScaleFactor: 0.1 });
 
-  const posts = await getHashtagPosts(page, settings.hashtag, settings.numberOfPages);
+  const posts = await getHashtagPosts(page, config.hashtag, config.numberOfPages);
 
   const owners = await getUniquePostOwners(page, posts);
 
@@ -104,6 +100,10 @@ async function createConfig(): Promise<t.Config> {
 }
 
 async function getUsers(page: t.Page, users: t.BaseUser[]): Promise<t.User[]> {
+  console.log(colors.inverse('\nGoing through user profiles to extract user info\n'));
+  const bar = new ProgressBar(progressBarFormat, { total: users.length });
+  bar.render();
+
   const resolvedUsers: t.User[] = [];
 
   for (const { username } of users) {
@@ -111,6 +111,7 @@ async function getUsers(page: t.Page, users: t.BaseUser[]): Promise<t.User[]> {
     if (user) {
       resolvedUsers.push(user);
     }
+    bar.tick();
   }
   return resolvedUsers;
 }
@@ -129,16 +130,20 @@ async function getUser(page: t.Page, username: string): Promise<t.User> {
 
     return user;
   } catch (e) {
-    console.log(
-      'Failed for getUsers ',
-      `https://www.instagram.com/${username}/`,
-      JSON.stringify(pageData),
-      e.message
-    );
+    // console.log(
+    //   'Failed for getUsers ',
+    //   `https://www.instagram.com/${username}/`,
+    //   JSON.stringify(pageData),
+    //   e.message
+    // );
   }
 }
 
 async function getUniquePostOwners(page: t.Page, posts: t.Post[]): Promise<t.BaseUser[]> {
+  console.log(colors.inverse('\nGoing through posts to extract user names\n'));
+  const bar = new ProgressBar(progressBarFormat, { total: posts.length });
+  bar.render();
+
   const postOwnersByName: Record<string, t.BaseUser> = {};
 
   for (const { shortcode } of posts) {
@@ -147,8 +152,7 @@ async function getUniquePostOwners(page: t.Page, posts: t.Post[]): Promise<t.Bas
     if (owner) {
       postOwnersByName[owner.username] = owner;
     }
-
-    await sleep(300);
+    bar.tick();
   }
 
   return Object.values(postOwnersByName);
@@ -156,6 +160,11 @@ async function getUniquePostOwners(page: t.Page, posts: t.Post[]): Promise<t.Bas
 
 async function getPostOwner(page: t.Page, shortcode: string): Promise<t.BaseUser> {
   let baseUser = await db.postToOwner.get(shortcode);
+
+  if (baseUser) {
+    console.log(' cached post owner');
+    return baseUser;
+  }
 
   const pageData = await extractPageData(page, `https://www.instagram.com/p/${shortcode}/`);
 
@@ -165,12 +174,12 @@ async function getPostOwner(page: t.Page, shortcode: string): Promise<t.BaseUser
 
     return baseUser;
   } catch (e) {
-    console.log(
-      'Failed for getPostOwner ',
-      `https://www.instagram.com/p/${shortcode}/`,
-      JSON.stringify(pageData),
-      e.message
-    );
+    // console.log(
+    //   'Failed for getPostOwner ',
+    //   `https://www.instagram.com/p/${shortcode}/`,
+    //   JSON.stringify(pageData),
+    //   e.message
+    // );
   }
 }
 
@@ -179,9 +188,14 @@ async function getHashtagPosts(
   hashtag: string,
   numberOfPages: number
 ): Promise<t.Post[]> {
+  console.log(colors.inverse('\nScrolling through instagram data pages\n'));
+  const bar = new ProgressBar(progressBarFormat, { total: numberOfPages });
+  bar.render();
+
   const responses: t.Response[] = [];
   const handler = (response: t.Response) => {
     if (response.url().startsWith('https://www.instagram.com/graphql/query')) {
+      bar.tick();
       responses.push(response);
     }
   };
@@ -219,6 +233,8 @@ async function extractPageData(page: t.Page, url: string): Promise<t.InstagramPa
   const text = await resp.text();
   const match = regexp.exec(text);
   const sharedData = JSON.parse(match[1]) as t.InstagramSharedData;
+
+  await sleep(50);
   return sharedData.entry_data;
 }
 
@@ -239,6 +255,8 @@ async function extractEmail(users: t.User[]): Promise<t.UserWithAnalytics[]> {
 }
 
 async function exportToCsv(users: t.UserWithAnalytics[]) {
+  const file = path.join(__dirname, '..', 'users.csv');
+
   const userRows = users.map(
     ({ username, full_name, email, external_url, followers, biography }) =>
       `"${username}","${full_name}","${followers}","${email}","${external_url}","${escapeForCsv(
@@ -246,7 +264,8 @@ async function exportToCsv(users: t.UserWithAnalytics[]) {
       )}"`
   );
   await writeFileAsync(
-    '../users.csv',
+    path.join(file),
     ['Username,Full Name,Followers,Email,ExternalUrl,Bio', ...userRows].join('\n')
   );
+  console.log(colors.inverse(`\nExported to ${file}\n`));
 }
