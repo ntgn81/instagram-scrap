@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as inquirer from 'inquirer';
 import * as puppeteer from 'puppeteer';
 import { promisify } from 'util';
 import db from './db';
@@ -6,14 +7,17 @@ import * as t from './definitions';
 const writeFileAsync = promisify(fs.writeFile);
 
 /* ========= COFIGURATIONS START ========= */
-const NUMBER_OF_PAGES = 1;
-const SHOW_CHROME = true;
-const HASHTAG = 'fitnesstrainer';
+const settings = {
+  numberOfPages: 1,
+  showChrome: true,
+  hashtag: 'fitnesstrainer'
+};
 /* ========= COFIGURATIONS END ========= */
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const escapeForCsv = str => str.replace(/"/g, '""');
 
+let browser: t.Browser;
 (async () => {
   try {
     await run();
@@ -22,18 +26,23 @@ const escapeForCsv = str => str.replace(/"/g, '""');
     console.error('Failed', e.message);
   } finally {
     await db.closeConnection();
+    if (browser) {
+      await browser.close();
+    }
     process.exit();
   }
 })();
 
 async function run() {
-  await db.initConnection();
+  const config = await createConfig();
 
-  const browser = await puppeteer.launch({ headless: !SHOW_CHROME });
+  await db.initConnection(config.dbUser, `${config.dbUser}1`);
+
+  browser = await puppeteer.launch({ headless: !settings.showChrome });
   const page = await browser.newPage();
   await page.setViewport({ width: 800, height: 2000, deviceScaleFactor: 0.1 });
 
-  const posts = await getHashtagPosts(page, HASHTAG, NUMBER_OF_PAGES);
+  const posts = await getHashtagPosts(page, settings.hashtag, settings.numberOfPages);
 
   const owners = await getUniquePostOwners(page, posts);
 
@@ -56,6 +65,42 @@ async function run() {
   // );
 
   await browser.close();
+}
+
+async function createConfig(): Promise<t.Config> {
+  const answers: any = await inquirer.prompt([
+    {
+      name: 'dbUser',
+      message: 'User to access cache DB',
+      type: 'input',
+      validate: input => !!input || 'This is required - company name'
+    },
+    {
+      name: 'hashtag',
+      message: 'Hashtag to search for:',
+      type: 'input',
+      default: 'fitnesstrainer'
+    },
+    {
+      name: 'numberOfPages',
+      message: 'Number of pages to scroll through',
+      type: 'input',
+      default: 1
+    },
+    {
+      name: 'showChrome',
+      message: 'Show chrome while running? (y/n)',
+      type: 'input',
+      default: 'y'
+    }
+  ]);
+
+  return {
+    dbUser: answers.dbUser,
+    hashtag: answers.hashtag,
+    numberOfPages: Number(answers.numberOfPages),
+    showChrome: /y/i.test(answers.showChrome)
+  };
 }
 
 async function getUsers(page: t.Page, users: t.BaseUser[]): Promise<t.User[]> {

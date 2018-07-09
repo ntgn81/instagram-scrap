@@ -2,6 +2,14 @@ import puppeteer = require('puppeteer');
 
 export type Page = puppeteer.Page;
 export type Response = puppeteer.Response;
+export type Browser = puppeteer.Browser;
+
+export interface Config {
+  showChrome: boolean;
+  numberOfPages: number;
+  hashtag: string;
+  dbUser: string;
+}
 
 export interface BaseUser {
   username: string;

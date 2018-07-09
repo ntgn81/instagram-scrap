@@ -15,7 +15,7 @@ let usernameToUserCol: Collection<{
 const db = {
   async initConnection(user: string, pass: string) {
     connection = await MongoClient.connect(
-      `mongodb://${user}:${pass}1@ds131551.mlab.com:31551/instagram-data`,
+      `mongodb://${user}:${pass}@ds131551.mlab.com:31551/instagram-data`,
       { useNewUrlParser: true }
     );
 
