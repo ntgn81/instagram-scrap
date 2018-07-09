@@ -162,7 +162,6 @@ async function getPostOwner(page: t.Page, shortcode: string): Promise<t.BaseUser
   let baseUser = await db.postToOwner.get(shortcode);
 
   if (baseUser) {
-    console.log(' cached post owner');
     return baseUser;
   }
 
