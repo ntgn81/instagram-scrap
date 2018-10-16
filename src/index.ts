@@ -123,8 +123,8 @@ async function getUser(page: t.Page, username: string): Promise<t.User> {
     return user;
   }
 
-  const pageData = await extractPageData(page, `https://www.instagram.com/${username}/`);
   try {
+    const pageData = await extractPageData(page, `https://www.instagram.com/${username}/`);
     user = pageData.ProfilePage[0].graphql.user;
     db.usernameToUser.save(username, user);
 
@@ -165,9 +165,9 @@ async function getPostOwner(page: t.Page, shortcode: string): Promise<t.BaseUser
     return baseUser;
   }
 
-  const pageData = await extractPageData(page, `https://www.instagram.com/p/${shortcode}/`);
 
   try {
+    const pageData = await extractPageData(page, `https://www.instagram.com/p/${shortcode}/`);
     baseUser = pageData.PostPage[0].graphql.shortcode_media.owner;
     db.postToOwner.save(shortcode, baseUser);
 
